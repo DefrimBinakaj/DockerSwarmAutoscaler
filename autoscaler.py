@@ -1,15 +1,11 @@
+# import libs
 import docker
 import requests
 import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-
-application_size_data = []
-response_time_data=[]
-time_data_size = []
-time_data_response = []
-
+# constants
 UPPER_RESPONSE_THRESHOLD = 3
 LOWER_RESPONSE_THRESHOLD = 2
 SCALE_IN_FACTOR = 0.5
@@ -19,7 +15,12 @@ MAX_CONTAINERS = 128
 MIN_CONTAINERS = 1
 scaling_enabled = False
 
-# docker client
+# lists for plotting application size over time
+application_size_data = []
+time_data_size = []
+
+
+# docker client init
 try:
     client = docker.DockerClient(base_url='unix://var/run/docker.sock')
 except Exception as exc:
@@ -39,20 +40,21 @@ def get_metrics():
         print("Get Metrics Error:", e)
 
 
-# time the get_metrics() func
+# time the get_metrics() func for timestamping
 def get_metrics_time():
     start_response_time = time.time()
     get_metrics()
     end_response_time = time.time() - start_response_time
     return end_response_time
     
-
+# returns number of current containers
 def get_current_containers():
     app_name_web_service = client.services.get("app_name_web")
     app_name_web_tasks = app_name_web_service.tasks(filters={"service": app_name_web_service.id})
     running_web_tasks = [task for task in app_name_web_tasks if task["Status"]["State"] == "running"]
     return len(running_web_tasks)
 
+# check if target container count has been reached in 5 second intervals
 def wait_until_container_count(target_count):
     while True:
         current_count = get_current_containers()
@@ -62,6 +64,7 @@ def wait_until_container_count(target_count):
         print("Waiting for container count to reach", target_count, "Current count:", current_count)
         time.sleep(5)
 
+# scale the service (containers) by arg amount
 def scale_service(scale_amount):
     try:
         service = client.services.get("app_name_web")
@@ -71,7 +74,7 @@ def scale_service(scale_amount):
     except Exception as err:
         print("Error Scaling: ", err)
 
-
+# update the app plot
 def update_size_plot():
     print("Updating application size plot")
     application_size_data.append(get_current_containers())
@@ -110,12 +113,14 @@ def autoscale():
             average_response_time = total_response_time / num_samples
             print("*** Average Response time: ", average_response_time, " ***")     
 
+            # if greater than upper threshold, scale out
             if scaling_enabled and average_response_time > UPPER_RESPONSE_THRESHOLD:
                 print("*** Average Response Time > Upper Response Threshold= ", UPPER_RESPONSE_THRESHOLD, " ***")
                 print("*** Scaling Enabled therefore Scale out! ***")
                 print("*** Current Containers: ", get_current_containers(), "    Scale out Factor: ", SCALE_OUT_FACTOR, " ***")
                 scale_service(min(MAX_CONTAINERS,get_current_containers() * SCALE_OUT_FACTOR))
             
+            # if less than lower threshold, scale in
             elif scaling_enabled and average_response_time < LOWER_RESPONSE_THRESHOLD:
                 print("*** Average Response Time < Lower Response Threshold= ", LOWER_RESPONSE_THRESHOLD, " ***")
                 print("*** Scaling Enabled therefore Scale in! ***")
